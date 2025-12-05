@@ -1,5 +1,4 @@
-with open("/home/mtmvxroi/public_html/cgi-bin/test.txt", "w") as f:
-    f.write("python is working")
+
 import logging
 import re
 import asyncio
