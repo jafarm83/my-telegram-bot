@@ -16,11 +16,10 @@ TARGET_CHAT_ID = '@proxy_iran2024'
 GITHUB_SOURCE = 'https://raw.githubusercontent.com/Argh94/telegram-proxy-scraper/main/proxy.txt'
 
 CHECK_INTERVAL = 120  # اجرا هر 2 دقیقه
-PING_TIMEOUT = 1.5    # تایم‌اوت سخت‌گیرانه (ثانیه)
-PING_RETRIES = 3      # تعداد دفعات تست هر پروکسی
-REQUIRED_COUNT = 16   # تعداد پروکسی نهایی برای ارسال
+PING_TIMEOUT = 1.5
+PING_RETRIES = 3
+REQUIRED_COUNT = 16
 
-# جملات انگیزشی
 PERSIAN_QUOTES = [
     "موفقیت مجموعه‌ای از تلاش‌های کوچک است که هر روز تکرار می‌شوند.",
     "سختی‌ها برای این نیستند که تو را متوقف کنند، بلکه برای اینند که تو را آماده کنند.",
@@ -42,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 # ----------------- توابع -----------------
 def parse_proxy_info(proxy_url):
-    """استخراج IP و پورت از لینک پروکسی"""
+    """استخراج IP و پورت"""
     try:
         url_for_parse = proxy_url.replace('tg://', 'http://').replace('t.me', 'http://')
         parsed = urllib.parse.urlparse(url_for_parse)
@@ -56,7 +55,7 @@ def parse_proxy_info(proxy_url):
     return None, None
 
 async def measure_latency_average(ip, port, retries=3):
-    """پینگ چندباره برای سنجش پایداری"""
+    """تست دقیق پینگ"""
     latencies = []
     for _ in range(retries):
         start_time = time.time()
@@ -72,11 +71,13 @@ async def measure_latency_average(ip, port, retries=3):
             return False, 9999
         except Exception:
             return False, 9999
-    avg_latency = sum(latencies) / len(latencies) if latencies else 9999
-    return True, int(avg_latency)
+    if latencies:
+        avg_latency = sum(latencies) / len(latencies)
+        return True, int(avg_latency)
+    return False, 9999
 
 async def fetch_source_proxies():
-    """دانلود پروکسی‌ها از گیت‌هاب"""
+    """دانلود پروکسی‌ها"""
     global UNTESTED_QUEUE, HISTORY_SET
     try:
         timeout = aiohttp.ClientTimeout(total=20)
@@ -96,41 +97,12 @@ async def fetch_source_proxies():
                 else:
                     logger.warning(f"⚠️ خطای سرور گیت‌هاب: {response.status}")
     except aiohttp.ClientError as e:
-        logger.error(f"❌ خطای شبکه: {e}")
+        logger.error(f"❌ خطای شبکه در دانلود لیست: {e}")
     except Exception as e:
-        logger.error(f"❌ خطای ناشناخته: {e}")
-
-async def send_formatted_message(bot, cats):
-    """ارسال پیام دسته‌بندی شده"""
-    quote = random.choice(PERSIAN_QUOTES)
-    msg = f"<i>{quote}</i>\n\n{'—'*20}\n<b>🚀 لیست جدید پروکسی‌های پایدار و پرسرعت</b>\n📡 تفکیک شده بر اساس پایداری شبکه\n\n"
-    
-    def build_section(title, proxies, emoji):
-        section = f"{emoji} <b>{title}</b>\n"
-        for i, item in enumerate(proxies, 1):
-            section += f"🔗 <a href='{item['url']}'>اتصال {i}</a>  "
-            if i % 2 == 0: section += "\n"
-        return section + "\n"
-
-    msg += build_section("مخصوص همراه اول (MCI)", cats['mci'], "🔵")
-    msg += build_section("مخصوص ایرانسل (Irancell)", cats['irancell'], "🟡")
-    msg += build_section("مخصوص رایتل (Rightel)", cats['rightel'], "🟣")
-    msg += build_section("مخصوص وای‌فای (WiFi/ADSL)", cats['wifi'], "⚪️")
-    msg += "—"*20 + f"\n🆔 <b><a href='https://t.me/proxy_iran2024'>@proxy_iran2024</a></b>"
-
-    try:
-        await bot.send_message(
-            chat_id=TARGET_CHAT_ID,
-            text=msg,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True
-        )
-        logger.info("📤 پیام با موفقیت ارسال شد.")
-    except Exception as e:
-        logger.error(f"❌ خطا در ارسال پیام: {e}")
+        logger.error(f"❌ خطای ناشناخته در دانلود: {e}")
 
 async def process_proxies_job(context: ContextTypes.DEFAULT_TYPE):
-    """Job اصلی برای تست پروکسی‌ها"""
+    """اجرای دوره‌ای هر 2 دقیقه"""
     global UNTESTED_QUEUE, HISTORY_SET
     bot = context.bot
     logger.info("🔄 شروع سیکل تست دقیق پروکسی‌ها...")
@@ -164,22 +136,53 @@ async def process_proxies_job(context: ContextTypes.DEFAULT_TYPE):
         }
         await send_formatted_message(bot, categories)
     else:
-        logger.warning(f"⚠️ تعداد کافی پروکسی پایدار پیدا نشد: {len(healthy_proxies)}")
+        logger.warning(f"⚠️ تعداد کافی ({len(healthy_proxies)}) پروکسی پایدار پیدا نشد.")
+
+async def send_formatted_message(bot, cats):
+    quote = random.choice(PERSIAN_QUOTES)
+    msg = f"<i>{quote}</i>\n\n" + "—" * 20 + "\n"
+    msg += "<b>🚀 لیست جدید پروکسی‌های پایدار و پرسرعت</b>\n📡 تفکیک شده بر اساس پایداری شبکه\n\n"
+
+    def build_section(title, proxies, emoji):
+        section = f"{emoji} <b>{title}</b>\n"
+        for i, item in enumerate(proxies, 1):
+            section += f"🔗 <a href='{item['url']}'>اتصال {i}</a>  "
+            if i % 2 == 0: section += "\n"
+        return section + "\n"
+
+    msg += build_section("مخصوص همراه اول (MCI)", cats['mci'], "🔵")
+    msg += build_section("مخصوص ایرانسل (Irancell)", cats['irancell'], "🟡")
+    msg += build_section("مخصوص رایتل (Rightel)", cats['rightel'], "🟣")
+    msg += build_section("مخصوص وای‌فای (WiFi/ADSL)", cats['wifi'], "⚪️")
+
+    msg += "—" * 20 + "\n"
+    msg += f"🆔 <b><a href='https://t.me/proxy_iran2024'>@proxy_iran2024</a></b>"
+
+    for attempt in range(3):
+        try:
+            await bot.send_message(
+                chat_id=TARGET_CHAT_ID,
+                text=msg,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+            logger.info("📤 پیام با موفقیت ارسال شد.")
+            break
+        except Exception as e:
+            logger.error(f"⚠️ خطا در ارسال پیام (تلاش {attempt+1}): {e}")
+            await asyncio.sleep(2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ ربات فعال شد!\nمتد تست: میانگین‌گیری پینگ (3x) برای تضمین پایداری.")
+    await update.message.reply_text(
+        "✅ ربات فعال شد.\nمتد تست: میانگین‌گیری پینگ (3x) برای تضمین پایداری."
+    )
 
-# ----------------- اجرای ربات -----------------
-async def main():
+# ----------------- اجرای اصلی -----------------
+if __name__ == '__main__':
     print("--- ربات پروکسی پیشرفته (Multi-Ping Stability Check) ---")
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler('start', start))
 
-    # Job دوره‌ای هر 2 دقیقه
-    application.job_queue.run_repeating(process_proxies_job, interval=CHECK_INTERVAL, first=5)
-
-    # اجرای ربات
-    await application.run_polling()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    job_queue = app.job_queue
+    job_queue.run_repeating(process_proxies_job, interval=CHECK_INTERVAL, first=5)
+    app.run_polling()
